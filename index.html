@@ -1,168 +1,122 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <title>WhatsApp Clone</title>
-  <script src="/socket.io/socket.io.js"></script>
+<meta charset="UTF-8">
+<title>Mini WhatsApp + IG Chat</title>
+<script src="/socket.io/socket.io.js"></script>
 
-  <style>
-    * {
-      margin: 0;
-      padding: 0;
-      font-family: Arial;
-      box-sizing: border-box;
-    }
+<style>
+body { margin:0; font-family:Arial; display:flex; height:100vh; }
 
-    body {
-      display: flex;
-      height: 100vh;
-      background: #f0f2f5;
-    }
+/* LOGIN */
+#login {
+  position:absolute;
+  width:100%; height:100%;
+  background:#075e54;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  flex-direction:column;
+  color:white;
+}
 
-    /* LOGIN SCREEN */
-    #loginBox {
-      position: absolute;
-      width: 100%;
-      height: 100%;
-      background: #075e54;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      flex-direction: column;
-      color: white;
-    }
+#app { display:none; width:100%; }
 
-    #loginBox input {
-      padding: 10px;
-      width: 200px;
-      margin-top: 10px;
-      border: none;
-      outline: none;
-    }
+/* SIDEBAR */
+.sidebar {
+  width:30%;
+  background:#fff;
+  border-right:1px solid #ddd;
+  display:flex;
+  flex-direction:column;
+}
 
-    #loginBox button {
-      margin-top: 10px;
-      padding: 10px 20px;
-      border: none;
-      cursor: pointer;
-    }
+.header {
+  background:#075e54;
+  color:white;
+  padding:10px;
+}
 
-    /* APP */
-    .app {
-      display: none;
-      width: 100%;
-    }
+.user {
+  padding:10px;
+  cursor:pointer;
+  border-bottom:1px solid #eee;
+}
 
-    .sidebar {
-      width: 30%;
-      background: white;
-      border-right: 1px solid #ddd;
-      display: flex;
-      flex-direction: column;
-    }
+.user:hover { background:#f5f5f5; }
 
-    .header {
-      background: #075e54;
-      color: white;
-      padding: 15px;
-      font-weight: bold;
-    }
+button {
+  margin:5px;
+  padding:8px;
+}
 
-    .user {
-      padding: 15px;
-      cursor: pointer;
-      border-bottom: 1px solid #eee;
-      display: flex;
-      justify-content: space-between;
-    }
+/* CHAT */
+.chat {
+  width:70%;
+  display:flex;
+  flex-direction:column;
+}
 
-    .online {
-      color: green;
-      font-size: 12px;
-    }
+.chat-header {
+  background:#075e54;
+  color:white;
+  padding:10px;
+}
 
-    .offline {
-      color: gray;
-      font-size: 12px;
-    }
+.messages {
+  flex:1;
+  padding:10px;
+  overflow-y:auto;
+}
 
-    .chat {
-      width: 70%;
-      display: flex;
-      flex-direction: column;
-    }
+.msg {
+  padding:8px;
+  margin:5px;
+  border-radius:8px;
+  max-width:60%;
+}
 
-    .chat-header {
-      background: #075e54;
-      color: white;
-      padding: 15px;
-    }
+.me { background:#dcf8c6; margin-left:auto; }
+.other { background:#fff; }
 
-    .messages {
-      flex: 1;
-      padding: 15px;
-      overflow-y: auto;
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
+.input {
+  display:flex;
+  padding:10px;
+}
 
-    .msg {
-      max-width: 60%;
-      padding: 10px;
-      border-radius: 10px;
-    }
-
-    .me { background: #dcf8c6; align-self: flex-end; }
-    .other { background: #fff; align-self: flex-start; }
-
-    .input {
-      display: flex;
-      padding: 10px;
-      background: #eee;
-    }
-
-    input {
-      flex: 1;
-      padding: 10px;
-      border: none;
-      outline: none;
-    }
-
-    button {
-      margin-left: 10px;
-      padding: 10px;
-      background: #075e54;
-      color: white;
-      border: none;
-      cursor: pointer;
-    }
-  </style>
+input {
+  flex:1;
+  padding:8px;
+}
+</style>
 </head>
 
 <body>
 
 <!-- LOGIN -->
-<div id="loginBox">
-  <h2>Login Chat</h2>
-  <input id="username" placeholder="Enter username" />
+<div id="login">
+  <h2>Login</h2>
+  <input id="name" placeholder="username">
   <button onclick="login()">Enter</button>
 </div>
 
 <!-- APP -->
-<div class="app" id="app">
+<div id="app">
 
   <div class="sidebar">
-    <div class="header">Users Online</div>
-    <div id="userList"></div>
+    <div class="header">Users</div>
+    <div id="users"></div>
+
+    <button onclick="createGroup()">+ Create Group</button>
   </div>
 
   <div class="chat">
-    <div class="chat-header" id="chatHeader">Select user</div>
-    <div class="messages" id="messages"></div>
+    <div class="chat-header" id="chatTitle">Select chat</div>
+
+    <div class="messages" id="msgs"></div>
 
     <div class="input">
-      <input id="msgInput" placeholder="type message..." />
+      <input id="msg" placeholder="message">
       <button onclick="send()">Send</button>
     </div>
   </div>
@@ -172,108 +126,105 @@
 <script>
 const socket = io();
 
-let myName = null;
-let currentUser = null;
-let currentRoom = null;
-let onlineList = [];
+let me = "";
+let currentRoom = "";
+let currentTarget = "";
+let selectedUsers = [];
 
 /* LOGIN */
-function login() {
-  const name = document.getElementById("username").value;
-  if (!name) return;
+function login(){
+  me = document.getElementById("name").value;
+  if(!me) return;
 
-  myName = name;
+  socket.emit("login", me);
 
-  socket.emit("login", myName);
-
-  document.getElementById("loginBox").style.display = "none";
-  document.getElementById("app").style.display = "flex";
+  document.getElementById("login").style.display="none";
+  document.getElementById("app").style.display="flex";
 }
 
-/* UPDATE ONLINE USERS */
-socket.on("updateOnlineUsers", (users) => {
-  onlineList = users;
-  renderUsers();
-});
+/* USERS */
+socket.on("onlineUsers", (users)=>{
+  const box = document.getElementById("users");
+  box.innerHTML="";
 
-/* RENDER USERS */
-function renderUsers() {
-  const list = document.getElementById("userList");
-  list.innerHTML = "";
+  users.forEach(u=>{
+    if(u === me) return;
 
-  const dummy = ["budi", "siti", "andi", "joni"].filter(u => u !== myName);
-
-  dummy.forEach(user => {
     const div = document.createElement("div");
-    div.className = "user";
+    div.className="user";
+    div.innerText=u;
 
-    const status = onlineList.includes(user)
-      ? `<span class="online">online</span>`
-      : `<span class="offline">offline</span>`;
-
-    div.innerHTML = `<span>${user}</span>${status}`;
-
-    div.onclick = () => {
-      currentUser = user;
-      currentRoom = [myName, user].sort().join("_");
-
-      document.getElementById("chatHeader").innerText = user;
+    div.onclick = ()=>{
+      currentTarget = u;
+      currentRoom = [me,u].sort().join("_");
 
       socket.emit("joinPrivate", currentRoom);
-      loadHistory(currentRoom);
+      load(currentRoom);
+
+      document.getElementById("chatTitle").innerText = u;
     };
 
-    list.appendChild(div);
+    box.appendChild(div);
+  });
+});
+
+/* CREATE GROUP SIMPLE */
+function createGroup(){
+  const name = prompt("Group name?");
+  const users = prompt("Users (comma separated)").split(",");
+
+  users.push(me);
+
+  socket.emit("createGroup", {
+    groupName:name,
+    members:users
   });
 }
 
-/* SEND MESSAGE */
-function send() {
-  const msg = document.getElementById("msgInput").value;
-  if (!msg || !currentUser) return;
+/* SEND */
+function send(){
+  const msg = document.getElementById("msg").value;
 
-  socket.emit("privateMessage", {
-    sender: myName,
-    receiver: currentUser,
+  if(!msg) return;
+
+  socket.emit("sendMessage", {
+    roomId: currentRoom,
+    sender: me,
     message: msg
   });
 
-  document.getElementById("msgInput").value = "";
+  document.getElementById("msg").value="";
 }
 
-/* RECEIVE MESSAGE */
-socket.on("receiveMessage", (data) => {
-  if (!currentRoom || data.room !== currentRoom) return;
+/* RECEIVE */
+socket.on("receiveMessage", (data)=>{
+  if(data.roomId !== currentRoom) return;
 
   const div = document.createElement("div");
   div.className = "msg";
 
-  div.classList.add(data.sender === myName ? "me" : "other");
+  div.classList.add(data.sender === me ? "me":"other");
+  div.innerText = data.sender + ": " + data.message;
 
-  div.innerHTML = `<b>${data.sender}</b><br>${data.message}`;
-
-  document.getElementById("messages").appendChild(div);
+  document.getElementById("msgs").appendChild(div);
 });
 
 /* LOAD HISTORY */
-function loadHistory(roomId) {
-  fetch(`/messages/${roomId}`)
-    .then(res => res.json())
-    .then(data => {
-      const box = document.getElementById("messages");
-      box.innerHTML = "";
+function load(room){
+  fetch("/messages/"+room)
+  .then(r=>r.json())
+  .then(data=>{
+    const box=document.getElementById("msgs");
+    box.innerHTML="";
 
-      data.forEach(d => {
-        const div = document.createElement("div");
-        div.className = "msg";
-
-        div.classList.add(d.sender === myName ? "me" : "other");
-
-        div.innerHTML = `<b>${d.sender}</b><br>${d.message}`;
-
-        box.appendChild(div);
-      });
+    data.forEach(d=>{
+      const div=document.createElement("div");
+      div.className="msg";
+      div.classList.add(d.sender===me?"me":"other");
+      div.innerText=d.sender+": "+d.message;
+      box.appendChild(div);
     });
+  });
 }
 </script>
 
