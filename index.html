@@ -1,232 +1,143 @@
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="UTF-8">
-<title>Mini WhatsApp + IG Chat</title>
-<script src="/socket.io/socket.io.js"></script>
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+const sqlite3 = require("sqlite3").verbose();
+const path = require("path");
 
-<style>
-body { margin:0; font-family:Arial; display:flex; height:100vh; }
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
 
-/* LOGIN */
-#login {
-  position:absolute;
-  width:100%; height:100%;
-  background:#075e54;
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  flex-direction:column;
-  color:white;
-}
+const db = new sqlite3.Database("./chat.db");
 
-#app { display:none; width:100%; }
+app.use(express.json());
 
-/* SIDEBAR */
-.sidebar {
-  width:30%;
-  background:#fff;
-  border-right:1px solid #ddd;
-  display:flex;
-  flex-direction:column;
-}
-
-.header {
-  background:#075e54;
-  color:white;
-  padding:10px;
-}
-
-.user {
-  padding:10px;
-  cursor:pointer;
-  border-bottom:1px solid #eee;
-}
-
-.user:hover { background:#f5f5f5; }
-
-button {
-  margin:5px;
-  padding:8px;
-}
-
-/* CHAT */
-.chat {
-  width:70%;
-  display:flex;
-  flex-direction:column;
-}
-
-.chat-header {
-  background:#075e54;
-  color:white;
-  padding:10px;
-}
-
-.messages {
-  flex:1;
-  padding:10px;
-  overflow-y:auto;
-}
-
-.msg {
-  padding:8px;
-  margin:5px;
-  border-radius:8px;
-  max-width:60%;
-}
-
-.me { background:#dcf8c6; margin-left:auto; }
-.other { background:#fff; }
-
-.input {
-  display:flex;
-  padding:10px;
-}
-
-input {
-  flex:1;
-  padding:8px;
-}
-</style>
-</head>
-
-<body>
-
-<!-- LOGIN -->
-<div id="login">
-  <h2>Login</h2>
-  <input id="name" placeholder="username">
-  <button onclick="login()">Enter</button>
-</div>
-
-<!-- APP -->
-<div id="app">
-
-  <div class="sidebar">
-    <div class="header">Users</div>
-    <div id="users"></div>
-
-    <button onclick="createGroup()">+ Create Group</button>
-  </div>
-
-  <div class="chat">
-    <div class="chat-header" id="chatTitle">Select chat</div>
-
-    <div class="messages" id="msgs"></div>
-
-    <div class="input">
-      <input id="msg" placeholder="message">
-      <button onclick="send()">Send</button>
-    </div>
-  </div>
-
-</div>
-
-<script>
-const socket = io();
-
-let me = "";
-let currentRoom = "";
-let currentTarget = "";
-let selectedUsers = [];
-
-/* LOGIN */
-function login(){
-  me = document.getElementById("name").value;
-  if(!me) return;
-
-  socket.emit("login", me);
-
-  document.getElementById("login").style.display="none";
-  document.getElementById("app").style.display="flex";
-}
-
-/* USERS */
-socket.on("onlineUsers", (users)=>{
-  const box = document.getElementById("users");
-  box.innerHTML="";
-
-  users.forEach(u=>{
-    if(u === me) return;
-
-    const div = document.createElement("div");
-    div.className="user";
-    div.innerText=u;
-
-    div.onclick = ()=>{
-      currentTarget = u;
-      currentRoom = [me,u].sort().join("_");
-
-      socket.emit("joinPrivate", currentRoom);
-      load(currentRoom);
-
-      document.getElementById("chatTitle").innerText = u;
-    };
-
-    box.appendChild(div);
-  });
+/* =========================
+   SERVE FRONTEND
+========================= */
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "index.html"));
 });
 
-/* CREATE GROUP SIMPLE */
-function createGroup(){
-  const name = prompt("Group name?");
-  const users = prompt("Users (comma separated)").split(",");
-
-  users.push(me);
-
-  socket.emit("createGroup", {
-    groupName:name,
-    members:users
-  });
-}
-
-/* SEND */
-function send(){
-  const msg = document.getElementById("msg").value;
-
-  if(!msg) return;
-
-  socket.emit("sendMessage", {
-    roomId: currentRoom,
-    sender: me,
-    message: msg
-  });
-
-  document.getElementById("msg").value="";
-}
-
-/* RECEIVE */
-socket.on("receiveMessage", (data)=>{
-  if(data.roomId !== currentRoom) return;
-
-  const div = document.createElement("div");
-  div.className = "msg";
-
-  div.classList.add(data.sender === me ? "me":"other");
-  div.innerText = data.sender + ": " + data.message;
-
-  document.getElementById("msgs").appendChild(div);
+/* =========================
+   DB INIT
+========================= */
+db.serialize(() => {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      room TEXT,
+      sender TEXT,
+      message TEXT,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
 });
 
-/* LOAD HISTORY */
-function load(room){
-  fetch("/messages/"+room)
-  .then(r=>r.json())
-  .then(data=>{
-    const box=document.getElementById("msgs");
-    box.innerHTML="";
+/* =========================
+   STATE MANAGEMENT
+========================= */
+const onlineUsers = {};   // username -> socket.id
+const userSockets = {};    // username -> socket
 
-    data.forEach(d=>{
-      const div=document.createElement("div");
-      div.className="msg";
-      div.classList.add(d.sender===me?"me":"other");
-      div.innerText=d.sender+": "+d.message;
-      box.appendChild(div);
+/* =========================
+   SOCKET.IO
+========================= */
+io.on("connection", (socket) => {
+
+  console.log("User connected:", socket.id);
+
+  /* -------------------------
+     LOGIN USER
+  ------------------------- */
+  socket.on("login", (username) => {
+    socket.username = username;
+
+    onlineUsers[username] = true;
+    userSockets[username] = socket;
+
+    socket.join(username); // private room per user
+
+    io.emit("onlineUsers", Object.keys(onlineUsers));
+  });
+
+  /* -------------------------
+     PRIVATE + GROUP MESSAGE
+  ------------------------- */
+  socket.on("sendMessage", ({ roomId, sender, message }) => {
+
+    // simpan chat
+    db.run(
+      `INSERT INTO messages (room, sender, message)
+       VALUES (?, ?, ?)`,
+      [roomId, sender, message]
+    );
+
+    // kirim ke room
+    io.to(roomId).emit("receiveMessage", {
+      roomId,
+      sender,
+      message
     });
   });
-}
-</script>
 
-</body>
-</html>
+  /* -------------------------
+     CREATE GROUP (SIMPLE UI)
+  ------------------------- */
+  socket.on("createGroup", ({ groupName, members }) => {
+
+    const roomId = "group_" + Date.now();
+
+    // join semua member ke room
+    members.forEach(user => {
+      const targetSocket = userSockets[user];
+      if (targetSocket) {
+        targetSocket.join(roomId);
+      }
+    });
+
+    // broadcast group ke semua user
+    io.emit("newGroup", {
+      roomId,
+      groupName,
+      members
+    });
+  });
+
+  /* -------------------------
+     DISCONNECT
+  ------------------------- */
+  socket.on("disconnect", () => {
+
+    const username = socket.username;
+
+    if (username) {
+      delete onlineUsers[username];
+      delete userSockets[username];
+    }
+
+    io.emit("onlineUsers", Object.keys(onlineUsers));
+  });
+});
+
+/* =========================
+   CHAT HISTORY
+========================= */
+app.get("/messages/:roomId", (req, res) => {
+
+  db.all(
+    "SELECT * FROM messages WHERE room = ? ORDER BY createdAt ASC",
+    [req.params.roomId],
+    (err, rows) => {
+      if (err) return res.status(500).send(err);
+      res.json(rows);
+    }
+  );
+});
+
+/* =========================
+   START SERVER
+========================= */
+server.listen(3000, () => {
+  console.log("Server running at http://localhost:3000");
+});
