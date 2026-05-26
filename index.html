@@ -2,14 +2,15 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Simple WhatsApp Clone</title>
+  <title>WhatsApp Clone (Private Chat)</title>
   <script src="/socket.io/socket.io.js"></script>
+
   <style>
     * {
       margin: 0;
       padding: 0;
-      box-sizing: border-box;
       font-family: Arial, sans-serif;
+      box-sizing: border-box;
     }
 
     body {
@@ -28,38 +29,33 @@
     }
 
     .sidebar-header {
-      padding: 15px;
-      font-weight: bold;
       background: #075e54;
       color: white;
-    }
-
-    .chat-list {
-      flex: 1;
-      overflow-y: auto;
-    }
-
-    .chat-item {
       padding: 15px;
-      border-bottom: 1px solid #eee;
-      cursor: pointer;
+      font-weight: bold;
     }
 
-    .chat-item:hover {
+    .user {
+      padding: 15px;
+      cursor: pointer;
+      border-bottom: 1px solid #eee;
+    }
+
+    .user:hover {
       background: #f5f5f5;
     }
 
     /* CHAT AREA */
-    .chat-area {
+    .chat {
       width: 70%;
       display: flex;
       flex-direction: column;
     }
 
     .chat-header {
-      padding: 15px;
       background: #075e54;
       color: white;
+      padding: 15px;
     }
 
     .messages {
@@ -99,7 +95,6 @@
       padding: 10px;
       border: none;
       outline: none;
-      border-radius: 5px;
     }
 
     button {
@@ -109,7 +104,6 @@
       color: white;
       border: none;
       cursor: pointer;
-      border-radius: 5px;
     }
 
     button:hover {
@@ -120,101 +114,118 @@
 
 <body>
 
-  <!-- SIDEBAR -->
-  <div class="sidebar">
-    <div class="sidebar-header">Chats</div>
-    <div class="chat-list" id="chatList"></div>
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="sidebar-header">Users</div>
+  <div id="userList"></div>
+</div>
+
+<!-- CHAT -->
+<div class="chat">
+  <div class="chat-header" id="chatHeader">Select a user</div>
+
+  <div class="messages" id="messages"></div>
+
+  <div class="input-area">
+    <input type="text" id="msgInput" placeholder="Type message..." />
+    <button onclick="sendMessage()">Send</button>
   </div>
-
-  <!-- CHAT AREA -->
-  <div class="chat-area">
-    <div class="chat-header" id="chatHeader">Select Chat</div>
-
-    <div class="messages" id="messages"></div>
-
-    <div class="input-area">
-      <input type="text" id="msgInput" placeholder="Type a message..." />
-      <button onclick="sendMessage()">Send</button>
-    </div>
-  </div>
+</div>
 
 <script>
 const socket = io();
 
-/* ======================
-   SIMPLE USER SYSTEM
-====================== */
 const myName = prompt("Enter your name:");
-let currentChat = "global";
+let currentUser = null;
+let currentRoom = null;
 
-/* JOIN DEFAULT ROOM */
-socket.emit("joinRoom", "global");
+/* USER LIST (dummy data) */
+const users = ["budi", "siti", "andi", "joni"].filter(u => u !== myName);
 
-/* ======================
-   SEND MESSAGE
-====================== */
-function sendMessage() {
-  const input = document.getElementById("msgInput");
-  const text = input.value;
+const userList = document.getElementById("userList");
 
-  if (!text) return;
+/* render users */
+users.forEach(user => {
+  const div = document.createElement("div");
+  div.className = "user";
+  div.innerText = user;
 
-  const data = {
-    sender: myName,
-    room: currentChat,
-    message: text,
-    type: "text"
+  div.onclick = async () => {
+    currentUser = user;
+
+    document.getElementById("chatHeader").innerText = user;
+
+    currentRoom = createRoom(myName, user);
+
+    socket.emit("joinPrivate", currentRoom);
+
+    loadHistory(currentRoom);
   };
 
-  socket.emit("sendMessage", data);
+  userList.appendChild(div);
+});
 
-  input.value = "";
+/* create room id */
+function createRoom(a, b) {
+  return [a, b].sort().join("_");
 }
 
-/* ======================
-   RECEIVE MESSAGE
-====================== */
-socket.on("receiveMessage", (data) => {
-  const messages = document.getElementById("messages");
+/* SEND MESSAGE */
+function sendMessage() {
+  const msg = document.getElementById("msgInput").value;
+  if (!msg || !currentUser) return;
 
-  const msg = document.createElement("div");
-  msg.classList.add("msg");
+  socket.emit("privateMessage", {
+    sender: myName,
+    receiver: currentUser,
+    message: msg
+  });
+
+  document.getElementById("msgInput").value = "";
+}
+
+/* RECEIVE MESSAGE */
+socket.on("receiveMessage", (data) => {
+  if (!currentRoom || data.room !== currentRoom) return;
+
+  const div = document.createElement("div");
+  div.className = "msg";
 
   if (data.sender === myName) {
-    msg.classList.add("me");
+    div.classList.add("me");
   } else {
-    msg.classList.add("other");
+    div.classList.add("other");
   }
 
-  msg.innerHTML = `<b>${data.sender}</b><br>${data.message}`;
+  div.innerHTML = `<b>${data.sender}</b><br>${data.message}`;
 
-  messages.appendChild(msg);
-  messages.scrollTop = messages.scrollHeight;
+  document.getElementById("messages").appendChild(div);
 });
 
-/* ======================
-   LOAD CHAT LIST (STATIC)
-====================== */
-const chatList = document.getElementById("chatList");
+/* LOAD CHAT HISTORY */
+function loadHistory(roomId) {
+  fetch(`/messages/${roomId}`)
+    .then(res => res.json())
+    .then(data => {
+      const box = document.getElementById("messages");
+      box.innerHTML = "";
 
-const chats = ["global", "group-1", "group-2"];
+      data.forEach(d => {
+        const div = document.createElement("div");
+        div.className = "msg";
 
-chats.forEach(chat => {
-  const div = document.createElement("div");
-  div.classList.add("chat-item");
-  div.innerText = chat;
+        if (d.sender === myName) {
+          div.classList.add("me");
+        } else {
+          div.classList.add("other");
+        }
 
-  div.onclick = () => {
-    currentChat = chat;
-    document.getElementById("chatHeader").innerText = chat;
+        div.innerHTML = `<b>${d.sender}</b><br>${d.message}`;
 
-    document.getElementById("messages").innerHTML = "";
-
-    socket.emit("joinRoom", chat);
-  };
-
-  chatList.appendChild(div);
-});
+        box.appendChild(div);
+      });
+    });
+}
 </script>
 
 </body>
