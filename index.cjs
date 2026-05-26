@@ -26,9 +26,8 @@ db.serialize(() => {
   db.run(`
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      sender TEXT,
-      receiver TEXT,
       room TEXT,
+      sender TEXT,
       message TEXT,
       createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
     )
@@ -36,71 +35,83 @@ db.serialize(() => {
 });
 
 /* =========================
-   ONLINE USERS STORAGE
+   STATE
 ========================= */
-const onlineUsers = {}; // { username: socket.id }
+const onlineUsers = {};   // username -> socket.id
+const rooms = {};         // roomId -> { type, members, name }
 
 /* =========================
-   SOCKET.IO
+   SOCKET
 ========================= */
 io.on("connection", (socket) => {
-  console.log("User connected:", socket.id);
+  console.log("connected:", socket.id);
 
   // LOGIN USER
   socket.on("login", (username) => {
     socket.username = username;
     onlineUsers[username] = socket.id;
 
-    io.emit("updateOnlineUsers", Object.keys(onlineUsers));
+    io.emit("onlineUsers", Object.keys(onlineUsers));
   });
 
-  // PRIVATE CHAT ROOM
+  // CREATE GROUP
+  socket.on("createGroup", ({ groupName, members }) => {
+    const roomId = "group_" + Date.now();
+
+    rooms[roomId] = {
+      type: "group",
+      name: groupName,
+      members
+    };
+
+    // join semua member ke room
+    members.forEach(user => {
+      const sid = onlineUsers[user];
+      if (sid) {
+        io.sockets.sockets.get(sid)?.join(roomId);
+      }
+    });
+
+    io.emit("newGroup", { roomId, groupName, members });
+  });
+
+  // JOIN PRIVATE
   socket.on("joinPrivate", (roomId) => {
     socket.join(roomId);
   });
 
-  // SEND MESSAGE
-  socket.on("privateMessage", (data) => {
-    const { sender, receiver, message } = data;
-
-    const roomId = createRoomId(sender, receiver);
+  // MESSAGE (PRIVATE + GROUP)
+  socket.on("sendMessage", ({ roomId, sender, message }) => {
 
     db.run(
-      `INSERT INTO messages (sender, receiver, room, message)
-       VALUES (?, ?, ?, ?)`,
-      [sender, receiver, roomId, message]
+      `INSERT INTO messages (room, sender, message)
+       VALUES (?, ?, ?)`,
+      [roomId, sender, message]
     );
 
     io.to(roomId).emit("receiveMessage", {
+      roomId,
       sender,
-      receiver,
-      message,
-      room: roomId
+      message
     });
   });
 
   // DISCONNECT
   socket.on("disconnect", () => {
-    const username = socket.username;
+    const user = socket.username;
+    if (user) delete onlineUsers[user];
 
-    if (username && onlineUsers[username]) {
-      delete onlineUsers[username];
-      io.emit("updateOnlineUsers", Object.keys(onlineUsers));
-    }
-
-    console.log("User disconnected:", socket.id);
+    io.emit("onlineUsers", Object.keys(onlineUsers));
   });
 });
 
 /* =========================
-   HISTORY CHAT
+   HISTORY
 ========================= */
 app.get("/messages/:roomId", (req, res) => {
-  const roomId = req.params.roomId;
-
   db.all(
     "SELECT * FROM messages WHERE room = ? ORDER BY createdAt ASC",
-    [roomId],
+    [req.params.roomId],
     (err, rows) => {
       if (err) return res.status(500).send(err);
       res.json(rows);
@@ -109,15 +120,8 @@ app.get("/messages/:roomId", (req, res) => {
 });
 
 /* =========================
-   ROOM ID
-========================= */
-function createRoomId(a, b) {
-  return [a, b].sort().join("_");
-}
-
-/* =========================
-   START SERVER
+   START
 ========================= */
 server.listen(3000, () => {
-  console.log("Server running at http://localhost:3000");
+  console.log("Server running on http://localhost:3000");
 });
