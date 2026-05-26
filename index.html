@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>WhatsApp Clone (Private Chat)</title>
+  <title>WhatsApp Clone</title>
   <script src="/socket.io/socket.io.js"></script>
 
   <style>
     * {
       margin: 0;
       padding: 0;
-      font-family: Arial, sans-serif;
+      font-family: Arial;
       box-sizing: border-box;
     }
 
@@ -19,16 +19,49 @@
       background: #f0f2f5;
     }
 
-    /* SIDEBAR */
+    /* LOGIN SCREEN */
+    #loginBox {
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      background: #075e54;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      flex-direction: column;
+      color: white;
+    }
+
+    #loginBox input {
+      padding: 10px;
+      width: 200px;
+      margin-top: 10px;
+      border: none;
+      outline: none;
+    }
+
+    #loginBox button {
+      margin-top: 10px;
+      padding: 10px 20px;
+      border: none;
+      cursor: pointer;
+    }
+
+    /* APP */
+    .app {
+      display: none;
+      width: 100%;
+    }
+
     .sidebar {
       width: 30%;
-      background: #fff;
+      background: white;
       border-right: 1px solid #ddd;
       display: flex;
       flex-direction: column;
     }
 
-    .sidebar-header {
+    .header {
       background: #075e54;
       color: white;
       padding: 15px;
@@ -39,13 +72,20 @@
       padding: 15px;
       cursor: pointer;
       border-bottom: 1px solid #eee;
+      display: flex;
+      justify-content: space-between;
     }
 
-    .user:hover {
-      background: #f5f5f5;
+    .online {
+      color: green;
+      font-size: 12px;
     }
 
-    /* CHAT AREA */
+    .offline {
+      color: gray;
+      font-size: 12px;
+    }
+
     .chat {
       width: 70%;
       display: flex;
@@ -71,20 +111,12 @@
       max-width: 60%;
       padding: 10px;
       border-radius: 10px;
-      word-wrap: break-word;
     }
 
-    .me {
-      background: #dcf8c6;
-      align-self: flex-end;
-    }
+    .me { background: #dcf8c6; align-self: flex-end; }
+    .other { background: #fff; align-self: flex-start; }
 
-    .other {
-      background: #fff;
-      align-self: flex-start;
-    }
-
-    .input-area {
+    .input {
       display: flex;
       padding: 10px;
       background: #eee;
@@ -99,79 +131,104 @@
 
     button {
       margin-left: 10px;
-      padding: 10px 15px;
+      padding: 10px;
       background: #075e54;
       color: white;
       border: none;
       cursor: pointer;
-    }
-
-    button:hover {
-      background: #0b7d6b;
     }
   </style>
 </head>
 
 <body>
 
-<!-- SIDEBAR -->
-<div class="sidebar">
-  <div class="sidebar-header">Users</div>
-  <div id="userList"></div>
+<!-- LOGIN -->
+<div id="loginBox">
+  <h2>Login Chat</h2>
+  <input id="username" placeholder="Enter username" />
+  <button onclick="login()">Enter</button>
 </div>
 
-<!-- CHAT -->
-<div class="chat">
-  <div class="chat-header" id="chatHeader">Select a user</div>
+<!-- APP -->
+<div class="app" id="app">
 
-  <div class="messages" id="messages"></div>
-
-  <div class="input-area">
-    <input type="text" id="msgInput" placeholder="Type message..." />
-    <button onclick="sendMessage()">Send</button>
+  <div class="sidebar">
+    <div class="header">Users Online</div>
+    <div id="userList"></div>
   </div>
+
+  <div class="chat">
+    <div class="chat-header" id="chatHeader">Select user</div>
+    <div class="messages" id="messages"></div>
+
+    <div class="input">
+      <input id="msgInput" placeholder="type message..." />
+      <button onclick="send()">Send</button>
+    </div>
+  </div>
+
 </div>
 
 <script>
 const socket = io();
 
-const myName = prompt("Enter your name:");
+let myName = null;
 let currentUser = null;
 let currentRoom = null;
+let onlineList = [];
 
-/* USER LIST (dummy data) */
-const users = ["budi", "siti", "andi", "joni"].filter(u => u !== myName);
+/* LOGIN */
+function login() {
+  const name = document.getElementById("username").value;
+  if (!name) return;
 
-const userList = document.getElementById("userList");
+  myName = name;
 
-/* render users */
-users.forEach(user => {
-  const div = document.createElement("div");
-  div.className = "user";
-  div.innerText = user;
+  socket.emit("login", myName);
 
-  div.onclick = async () => {
-    currentUser = user;
+  document.getElementById("loginBox").style.display = "none";
+  document.getElementById("app").style.display = "flex";
+}
 
-    document.getElementById("chatHeader").innerText = user;
-
-    currentRoom = createRoom(myName, user);
-
-    socket.emit("joinPrivate", currentRoom);
-
-    loadHistory(currentRoom);
-  };
-
-  userList.appendChild(div);
+/* UPDATE ONLINE USERS */
+socket.on("updateOnlineUsers", (users) => {
+  onlineList = users;
+  renderUsers();
 });
 
-/* create room id */
-function createRoom(a, b) {
-  return [a, b].sort().join("_");
+/* RENDER USERS */
+function renderUsers() {
+  const list = document.getElementById("userList");
+  list.innerHTML = "";
+
+  const dummy = ["budi", "siti", "andi", "joni"].filter(u => u !== myName);
+
+  dummy.forEach(user => {
+    const div = document.createElement("div");
+    div.className = "user";
+
+    const status = onlineList.includes(user)
+      ? `<span class="online">online</span>`
+      : `<span class="offline">offline</span>`;
+
+    div.innerHTML = `<span>${user}</span>${status}`;
+
+    div.onclick = () => {
+      currentUser = user;
+      currentRoom = [myName, user].sort().join("_");
+
+      document.getElementById("chatHeader").innerText = user;
+
+      socket.emit("joinPrivate", currentRoom);
+      loadHistory(currentRoom);
+    };
+
+    list.appendChild(div);
+  });
 }
 
 /* SEND MESSAGE */
-function sendMessage() {
+function send() {
   const msg = document.getElementById("msgInput").value;
   if (!msg || !currentUser) return;
 
@@ -191,18 +248,14 @@ socket.on("receiveMessage", (data) => {
   const div = document.createElement("div");
   div.className = "msg";
 
-  if (data.sender === myName) {
-    div.classList.add("me");
-  } else {
-    div.classList.add("other");
-  }
+  div.classList.add(data.sender === myName ? "me" : "other");
 
   div.innerHTML = `<b>${data.sender}</b><br>${data.message}`;
 
   document.getElementById("messages").appendChild(div);
 });
 
-/* LOAD CHAT HISTORY */
+/* LOAD HISTORY */
 function loadHistory(roomId) {
   fetch(`/messages/${roomId}`)
     .then(res => res.json())
@@ -214,11 +267,7 @@ function loadHistory(roomId) {
         const div = document.createElement("div");
         div.className = "msg";
 
-        if (d.sender === myName) {
-          div.classList.add("me");
-        } else {
-          div.classList.add("other");
-        }
+        div.classList.add(d.sender === myName ? "me" : "other");
 
         div.innerHTML = `<b>${d.sender}</b><br>${d.message}`;
 
