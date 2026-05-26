@@ -1,53 +1,100 @@
-const express = require('express');
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+const sqlite3 = require("sqlite3").verbose();
+const path = require("path");
+
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
 
-const server = require('http').createServer(app);
-const io = require('socket.io')(server);
+const db = new sqlite3.Database("./chat.db");
 
-const sqlite3 = require('sqlite3').verbose();
+app.use(express.json());
 
-const db = new sqlite3.Database('./chat.db');
-
-db.run(`
-CREATE TABLE IF NOT EXISTS messages (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  user TEXT,
-  text TEXT,
-  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-)
-`);
-
-app.get('/', (req, res) => {
-  res.sendFile(__dirname + '/index.html');
+/* =========================
+   FRONTEND (ROOT HTML)
+========================= */
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "index.html"));
 });
 
-io.on('connection', (socket) => {
+/* =========================
+   DATABASE INIT
+========================= */
+db.serialize(() => {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      sender TEXT,
+      receiver TEXT,
+      room TEXT,
+      message TEXT,
+      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+});
 
-  console.log('User connected');
+/* =========================
+   SOCKET.IO
+========================= */
+io.on("connection", (socket) => {
+  console.log("User connected:", socket.id);
 
-  socket.on('chat message', (msg) => {
+  // JOIN PRIVATE ROOM
+  socket.on("joinPrivate", (roomId) => {
+    socket.join(roomId);
+  });
 
+  // SEND PRIVATE MESSAGE
+  socket.on("privateMessage", (data) => {
+    const { sender, receiver, message } = data;
+
+    const roomId = createRoomId(sender, receiver);
+
+    // simpan ke database
     db.run(
-      'INSERT INTO messages (user, text) VALUES (?, ?)',
-      [msg.user, msg.text],
-      (err) => {
-        if (err) {
-          console.error(err);
-        }
-      }
+      `INSERT INTO messages (sender, receiver, room, message)
+       VALUES (?, ?, ?, ?)`,
+      [sender, receiver, roomId, message]
     );
 
-    io.emit('chat message', msg);
+    // kirim ke room
+    io.to(roomId).emit("receiveMessage", {
+      sender,
+      receiver,
+      message,
+      room: roomId
+    });
   });
-
-  socket.on('disconnect', () => {
-    console.log('User disconnected');
-  });
-
 });
 
-const PORT = process.env.PORT || 3000;
+/* =========================
+   LOAD CHAT HISTORY
+========================= */
+app.get("/messages/:roomId", (req, res) => {
+  const roomId = req.params.roomId;
 
-server.listen(PORT, () => {
-  console.log(`listening on *:${PORT}`);
+  db.all(
+    "SELECT * FROM messages WHERE room = ? ORDER BY createdAt ASC",
+    [roomId],
+    (err, rows) => {
+      if (err) return res.status(500).send(err);
+      res.json(rows);
+    }
+  );
+});
+
+/* =========================
+   ROOM ID FUNCTION
+========================= */
+function createRoomId(a, b) {
+  return [a, b].sort().join("_");
+}
+
+/* =========================
+   START SERVER
+========================= */
+server.listen(3000, () => {
+  console.log("Server running at http://localhost:3000");
 });
