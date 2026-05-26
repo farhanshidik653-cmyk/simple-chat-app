@@ -12,6 +12,6 @@
   },
   "license": "MIT",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.cjs"
   }
 }
