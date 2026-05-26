@@ -13,14 +13,14 @@ const db = new sqlite3.Database("./chat.db");
 app.use(express.json());
 
 /* =========================
-   FRONTEND (ROOT HTML)
+   FRONTEND
 ========================= */
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "index.html"));
 });
 
 /* =========================
-   DATABASE INIT
+   DB INIT
 ========================= */
 db.serialize(() => {
   db.run(`
@@ -36,30 +36,41 @@ db.serialize(() => {
 });
 
 /* =========================
+   ONLINE USERS STORAGE
+========================= */
+const onlineUsers = {}; // { username: socket.id }
+
+/* =========================
    SOCKET.IO
 ========================= */
 io.on("connection", (socket) => {
   console.log("User connected:", socket.id);
 
-  // JOIN PRIVATE ROOM
+  // LOGIN USER
+  socket.on("login", (username) => {
+    socket.username = username;
+    onlineUsers[username] = socket.id;
+
+    io.emit("updateOnlineUsers", Object.keys(onlineUsers));
+  });
+
+  // PRIVATE CHAT ROOM
   socket.on("joinPrivate", (roomId) => {
     socket.join(roomId);
   });
 
-  // SEND PRIVATE MESSAGE
+  // SEND MESSAGE
   socket.on("privateMessage", (data) => {
     const { sender, receiver, message } = data;
 
     const roomId = createRoomId(sender, receiver);
 
-    // simpan ke database
     db.run(
       `INSERT INTO messages (sender, receiver, room, message)
        VALUES (?, ?, ?, ?)`,
       [sender, receiver, roomId, message]
     );
 
-    // kirim ke room
     io.to(roomId).emit("receiveMessage", {
       sender,
       receiver,
@@ -67,10 +78,22 @@ io.on("connection", (socket) => {
       room: roomId
     });
   });
+
+  // DISCONNECT
+  socket.on("disconnect", () => {
+    const username = socket.username;
+
+    if (username && onlineUsers[username]) {
+      delete onlineUsers[username];
+      io.emit("updateOnlineUsers", Object.keys(onlineUsers));
+    }
+
+    console.log("User disconnected:", socket.id);
+  });
 });
 
 /* =========================
-   LOAD CHAT HISTORY
+   HISTORY CHAT
 ========================= */
 app.get("/messages/:roomId", (req, res) => {
   const roomId = req.params.roomId;
@@ -86,7 +109,7 @@ app.get("/messages/:roomId", (req, res) => {
 });
 
 /* =========================
-   ROOM ID FUNCTION
+   ROOM ID
 ========================= */
 function createRoomId(a, b) {
   return [a, b].sort().join("_");
