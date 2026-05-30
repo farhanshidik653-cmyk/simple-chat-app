@@ -1,143 +1,859 @@
-const express = require("express");
-const http = require("http");
-const { Server } = require("socket.io");
-const sqlite3 = require("sqlite3").verbose();
-const path = require("path");
+<!DOCTYPE html>
+<html>
+<head>
 
-const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
+<meta charset="UTF-8">
+<title>NeoChat</title>
 
-const db = new sqlite3.Database("./chat.db");
+<script src="/socket.io/socket.io.js"></script>
 
-app.use(express.json());
+<style>
 
-/* =========================
-   SERVE FRONTEND
-========================= */
-app.get("/", (req, res) => {
-  res.sendFile(path.join(__dirname, "index.html"));
+*{
+  box-sizing:border-box;
+}
+
+body{
+  margin:0;
+  font-family:Arial;
+  height:100vh;
+  overflow:hidden;
+
+  background:
+  radial-gradient(
+    circle at top left,
+    #1e3a8a,
+    transparent 30%
+  ),
+  radial-gradient(
+    circle at bottom right,
+    #0ea5e9,
+    transparent 30%
+  ),
+  #020617;
+
+  color:white;
+}
+
+/* LOGIN */
+
+#login{
+
+  position:absolute;
+
+  width:100%;
+  height:100%;
+
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  flex-direction:column;
+
+  gap:15px;
+
+  backdrop-filter:blur(20px);
+}
+
+#login h1{
+
+  font-size:50px;
+  margin:0;
+}
+
+#login input{
+
+  width:280px;
+
+  padding:15px;
+
+  border:none;
+  outline:none;
+
+  border-radius:18px;
+
+  background:
+  rgba(255,255,255,0.08);
+
+  color:white;
+
+  border:
+  1px solid rgba(255,255,255,0.08);
+}
+
+#login button{
+
+  width:280px;
+
+  padding:15px;
+
+  border:none;
+
+  border-radius:18px;
+
+  background:
+  linear-gradient(
+    135deg,
+    #38bdf8,
+    #0ea5e9
+  );
+
+  color:white;
+
+  font-weight:bold;
+
+  cursor:pointer;
+}
+
+/* APP */
+
+#app{
+
+  display:none;
+
+  width:100%;
+  height:100vh;
+}
+
+/* SIDEBAR */
+
+.sidebar{
+
+  width:30%;
+
+  background:
+  rgba(255,255,255,0.05);
+
+  backdrop-filter:blur(20px);
+
+  border-right:
+  1px solid rgba(255,255,255,0.08);
+
+  overflow-y:auto;
+}
+
+.header{
+
+  padding:25px;
+
+  font-size:28px;
+  font-weight:bold;
+
+  border-bottom:
+  1px solid rgba(255,255,255,0.08);
+}
+
+/* USER */
+
+.user{
+
+  padding:15px;
+
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+
+  cursor:pointer;
+
+  transition:0.2s;
+
+  border-bottom:
+  1px solid rgba(255,255,255,0.04);
+}
+
+.user:hover{
+
+  background:
+  rgba(255,255,255,0.05);
+}
+
+.userLeft{
+
+  display:flex;
+  align-items:center;
+  gap:12px;
+}
+
+.avatar{
+
+  width:48px;
+  height:48px;
+
+  border-radius:50%;
+
+  background:
+  linear-gradient(
+    135deg,
+    #38bdf8,
+    #0ea5e9
+  );
+
+  display:flex;
+  justify-content:center;
+  align-items:center;
+
+  font-weight:bold;
+  font-size:18px;
+
+  position:relative;
+}
+
+.online{
+
+  width:10px;
+  height:10px;
+
+  border-radius:50%;
+
+  background:#22c55e;
+
+  position:absolute;
+
+  bottom:2px;
+  right:2px;
+
+  border:2px solid #111827;
+}
+
+.preview{
+
+  font-size:12px;
+
+  opacity:0.7;
+
+  margin-top:3px;
+}
+
+.activeUser{
+
+  background:
+  rgba(255,255,255,0.08);
+}
+
+/* CHAT */
+
+.chat{
+
+  width:70%;
+
+  display:flex;
+  flex-direction:column;
+}
+
+/* CHAT HEADER */
+
+.chatHeader{
+
+  padding:22px;
+
+  font-size:20px;
+  font-weight:bold;
+
+  background:
+  rgba(255,255,255,0.04);
+
+  border-bottom:
+  1px solid rgba(255,255,255,0.08);
+
+  backdrop-filter:blur(20px);
+}
+
+/* MESSAGE AREA */
+
+.messages{
+
+  flex:1;
+
+  overflow-y:auto;
+
+  padding:20px;
+
+  display:flex;
+  flex-direction:column;
+}
+
+/* MESSAGE */
+
+.msg{
+
+  max-width:60%;
+
+  padding:14px;
+
+  margin:10px 0;
+
+  border-radius:20px;
+
+  animation:fade 0.2s ease;
+
+  word-wrap:break-word;
+}
+
+@keyframes fade{
+
+  from{
+    opacity:0;
+    transform:translateY(10px);
+  }
+
+  to{
+    opacity:1;
+    transform:translateY(0);
+  }
+
+}
+
+.me{
+
+  background:
+  linear-gradient(
+    135deg,
+    #0ea5e9,
+    #38bdf8
+  );
+
+  margin-left:auto;
+
+  box-shadow:
+  0 10px 30px rgba(14,165,233,0.25);
+}
+
+.other{
+
+  background:
+  rgba(255,255,255,0.08);
+
+  border:
+  1px solid rgba(255,255,255,0.08);
+
+  backdrop-filter:blur(10px);
+}
+
+.msg img{
+
+  width:260px;
+
+  border-radius:14px;
+
+  margin-top:10px;
+}
+
+.time{
+
+  font-size:11px;
+
+  opacity:0.7;
+
+  margin-top:6px;
+
+  text-align:right;
+}
+
+/* INPUT */
+
+.inputArea{
+
+  padding:15px;
+
+  display:flex;
+  align-items:center;
+  gap:10px;
+
+  background:
+  rgba(255,255,255,0.04);
+
+  border-top:
+  1px solid rgba(255,255,255,0.08);
+}
+
+.inputArea input{
+
+  flex:1;
+
+  padding:15px;
+
+  border:none;
+  outline:none;
+
+  border-radius:15px;
+
+  background:
+  rgba(255,255,255,0.08);
+
+  color:white;
+}
+
+button{
+
+  border:none;
+
+  cursor:pointer;
+
+  transition:0.2s;
+}
+
+.sendBtn{
+
+  padding:15px 20px;
+
+  border-radius:15px;
+
+  background:
+  linear-gradient(
+    135deg,
+    #38bdf8,
+    #0ea5e9
+  );
+
+  color:white;
+
+  font-weight:bold;
+}
+
+.uploadBtn{
+
+  width:50px;
+  height:50px;
+
+  border-radius:15px;
+
+  background:
+  rgba(255,255,255,0.08);
+
+  color:white;
+
+  font-size:18px;
+}
+
+.sendBtn:hover,
+.uploadBtn:hover{
+
+  transform:translateY(-2px);
+}
+
+/* SCROLL */
+
+::-webkit-scrollbar{
+  width:6px;
+}
+
+::-webkit-scrollbar-thumb{
+
+  background:
+  rgba(255,255,255,0.2);
+
+  border-radius:10px;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<!-- LOGIN -->
+
+<div id="login">
+
+  <h1>NeoChat</h1>
+
+  <input
+    id="username"
+    placeholder="Enter username"
+  >
+
+  <button onclick="login()">
+    Enter Chat
+  </button>
+
+</div>
+
+<!-- APP -->
+
+<div id="app">
+
+  <!-- SIDEBAR -->
+
+  <div class="sidebar">
+
+    <div class="header">
+      NeoChat
+    </div>
+
+    <div id="users"></div>
+
+  </div>
+
+  <!-- CHAT -->
+
+  <div class="chat">
+
+    <div
+      class="chatHeader"
+      id="chatTitle"
+    >
+      Select Chat
+    </div>
+
+    <div
+      class="messages"
+      id="messages"
+    ></div>
+
+    <!-- INPUT -->
+
+    <div class="inputArea">
+
+      <!-- IMAGE -->
+
+      <input
+        type="file"
+        id="imageInput"
+        hidden
+      >
+
+      <button
+        class="uploadBtn"
+        onclick="
+        document
+        .getElementById('imageInput')
+        .click()
+        "
+      >
+        📷
+      </button>
+
+      <!-- MESSAGE -->
+
+      <input
+        id="msgInput"
+        placeholder="Type message..."
+      >
+
+      <button
+        class="sendBtn"
+        onclick="sendMessage()"
+      >
+        Send
+      </button>
+
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+
+const socket = io();
+
+let me = "";
+let currentRoom = "";
+
+/* LOGIN */
+
+function login(){
+
+  me =
+  document
+  .getElementById("username")
+  .value;
+
+  if(!me) return;
+
+  socket.emit("login", me);
+
+  document
+  .getElementById("login")
+  .style.display = "none";
+
+  document
+  .getElementById("app")
+  .style.display = "flex";
+
+}
+
+/* ENTER SEND */
+
+document
+.getElementById("msgInput")
+.addEventListener("keypress", (e)=>{
+
+  if(e.key === "Enter"){
+
+    sendMessage();
+
+  }
+
 });
 
-/* =========================
-   DB INIT
-========================= */
-db.serialize(() => {
-  db.run(`
-    CREATE TABLE IF NOT EXISTS messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      room TEXT,
-      sender TEXT,
-      message TEXT,
-      createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
-    )
-  `);
+/* ONLINE USERS */
+
+socket.on("onlineUsers", (users)=>{
+
+  const box =
+  document.getElementById("users");
+
+  box.innerHTML = "";
+
+  users.forEach(user=>{
+
+    if(user === me) return;
+
+    const div =
+    document.createElement("div");
+
+    div.className = "user";
+
+    div.innerHTML = `
+
+      <div class="userLeft">
+
+        <div class="avatar">
+
+          ${user[0].toUpperCase()}
+
+          <div class="online"></div>
+
+        </div>
+
+        <div>
+
+          <div style="
+            font-weight:bold;
+          ">
+            ${user}
+          </div>
+
+          <div class="preview">
+            Online now
+          </div>
+
+        </div>
+
+      </div>
+
+    `;
+
+    div.onclick = ()=>{
+
+      document
+      .querySelectorAll(".user")
+      .forEach(u=>{
+
+        u.classList.remove(
+          "activeUser"
+        );
+
+      });
+
+      div.classList.add(
+        "activeUser"
+      );
+
+      socket.emit(
+        "joinPrivate",
+        {
+          me,
+          target:user
+        }
+      );
+
+    };
+
+    box.appendChild(div);
+
+  });
+
 });
 
-/* =========================
-   STATE MANAGEMENT
-========================= */
-const onlineUsers = {};   // username -> socket.id
-const userSockets = {};    // username -> socket
+/* ROOM READY */
 
-/* =========================
-   SOCKET.IO
-========================= */
-io.on("connection", (socket) => {
+socket.on("roomReady", (data)=>{
 
-  console.log("User connected:", socket.id);
+  currentRoom = data.roomId;
 
-  /* -------------------------
-     LOGIN USER
-  ------------------------- */
-  socket.on("login", (username) => {
-    socket.username = username;
+  document
+  .getElementById("chatTitle")
+  .innerText = data.target;
 
-    onlineUsers[username] = true;
-    userSockets[username] = socket;
+  document
+  .getElementById("messages")
+  .innerHTML = "";
 
-    socket.join(username); // private room per user
+  socket.emit(
+    "loadMessages",
+    currentRoom
+  );
 
-    io.emit("onlineUsers", Object.keys(onlineUsers));
-  });
-
-  /* -------------------------
-     PRIVATE + GROUP MESSAGE
-  ------------------------- */
-  socket.on("sendMessage", ({ roomId, sender, message }) => {
-
-    // simpan chat
-    db.run(
-      `INSERT INTO messages (room, sender, message)
-       VALUES (?, ?, ?)`,
-      [roomId, sender, message]
-    );
-
-    // kirim ke room
-    io.to(roomId).emit("receiveMessage", {
-      roomId,
-      sender,
-      message
-    });
-  });
-
-  /* -------------------------
-     CREATE GROUP (SIMPLE UI)
-  ------------------------- */
-  socket.on("createGroup", ({ groupName, members }) => {
-
-    const roomId = "group_" + Date.now();
-
-    // join semua member ke room
-    members.forEach(user => {
-      const targetSocket = userSockets[user];
-      if (targetSocket) {
-        targetSocket.join(roomId);
-      }
-    });
-
-    // broadcast group ke semua user
-    io.emit("newGroup", {
-      roomId,
-      groupName,
-      members
-    });
-  });
-
-  /* -------------------------
-     DISCONNECT
-  ------------------------- */
-  socket.on("disconnect", () => {
-
-    const username = socket.username;
-
-    if (username) {
-      delete onlineUsers[username];
-      delete userSockets[username];
-    }
-
-    io.emit("onlineUsers", Object.keys(onlineUsers));
-  });
 });
 
-/* =========================
-   CHAT HISTORY
-========================= */
-app.get("/messages/:roomId", (req, res) => {
+/* SEND MESSAGE */
 
-  db.all(
-    "SELECT * FROM messages WHERE room = ? ORDER BY createdAt ASC",
-    [req.params.roomId],
-    (err, rows) => {
-      if (err) return res.status(500).send(err);
-      res.json(rows);
+function sendMessage(){
+
+  const input =
+  document.getElementById("msgInput");
+
+  const text =
+  input.value.trim();
+
+  if(!text || !currentRoom) return;
+
+  socket.emit(
+    "sendMessage",
+    {
+      roomId:currentRoom,
+      sender:me,
+      message:text,
+      type:"text"
     }
   );
+
+  input.value = "";
+
+}
+
+/* SEND IMAGE */
+
+document
+.getElementById("imageInput")
+.addEventListener("change", async ()=>{
+
+  const file =
+  document
+  .getElementById("imageInput")
+  .files[0];
+
+  if(!file || !currentRoom) return;
+
+  const formData =
+  new FormData();
+
+  formData.append(
+    "image",
+    file
+  );
+
+  const res =
+  await fetch(
+    "/upload",
+    {
+      method:"POST",
+      body:formData
+    }
+  );
+
+  const data =
+  await res.json();
+
+  socket.emit(
+    "sendMessage",
+    {
+      roomId:currentRoom,
+      sender:me,
+      message:data.imageUrl,
+      type:"image"
+    }
+  );
+
 });
 
-/* =========================
-   START SERVER
-========================= */
-server.listen(3000, () => {
-  console.log("Server running at http://localhost:3000");
-});
+/* RECEIVE */
+
+socket.on(
+  "receiveMessage",
+  (data)=>{
+
+    if(
+      data.roomId !== currentRoom
+    ) return;
+
+    addMessage(data);
+
+  }
+);
+
+/* HISTORY */
+
+socket.on(
+  "messageHistory",
+  (messages)=>{
+
+    const box =
+    document.getElementById("messages");
+
+    box.innerHTML = "";
+
+    messages.forEach(msg=>{
+
+      addMessage(msg);
+
+    });
+
+  }
+);
+
+/* ADD MESSAGE */
+
+function addMessage(data){
+
+  const div =
+  document.createElement("div");
+
+  div.className =
+  "msg " +
+  (
+    data.sender === me
+    ? "me"
+    : "other"
+  );
+
+  if(data.type === "image"){
+
+    div.innerHTML = `
+
+      <div>
+        ${data.sender}
+      </div>
+
+      <img src="${data.message}">
+
+      <div class="time">
+        ${data.time}
+      </div>
+
+    `;
+
+  } else {
+
+    div.innerHTML = `
+
+      <div>
+        ${data.sender}:
+        ${data.message}
+      </div>
+
+      <div class="time">
+        ${data.time}
+      </div>
+
+    `;
+
+  }
+
+  const msgBox =
+  document.getElementById("messages");
+
+  msgBox.appendChild(div);
+
+  /* AUTO SCROLL */
+
+  msgBox.scrollTop =
+  msgBox.scrollHeight;
+
+}
+
+</script>
+
+</body>
+</html>
